@@ -41,6 +41,11 @@
   form { display: flex; gap: 0.5rem; padding: 0.75rem; border-top: 1px solid var(--line); }
   form input { flex: 1; min-width: 0; font: inherit; padding: 0.6rem 0.8rem; border-radius: 0.6rem; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
   form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #mic { white-space: nowrap; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #mic.recording { background: var(--error); border-color: var(--error); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.75; } }
+  @media (prefers-reduced-motion: reduce) { #mic.recording { animation: none; } }
+  .audio-info { font-size: 0.8rem; }
 
   aside { display: flex; flex-direction: column; gap: 1rem; min-height: 0; overflow-y: auto; }
   aside section { padding: 1rem; }
@@ -107,6 +112,7 @@
     <div id="hex-preview" aria-live="polite"></div>
     <form id="form">
       <input id="input" autocomplete="off" placeholder="Type your order, e.g. two margheritas and a beer" maxlength="1000" aria-label="Message">
+      <button id="mic" type="button" title="Hold while you speak, release to send. Or click to start and click again to send.">🎤 Hold to talk</button>
       <button id="send" class="primary" type="submit">Send</button>
     </form>
   </div>
@@ -185,31 +191,43 @@
     updatePreview();
   }
 
-  function addMessage(kind, text) {
+  // For teaching: compare the amount of data in the recording with the text it became.
+  function renderAudioInfo(audio, text) {
+    const n = (x) => x.toLocaleString("en-US");
+    const div = document.createElement("div");
+    div.className = "bytes audio-info";
+    div.textContent =
+      `🎤 ${audio.seconds} s of sound = ${n(audio.samples)} samples (${n(audio.sample_rate)} per second) ` +
+      `= ${n(audio.pcm_bytes)} bytes as 16-bit audio (${n(audio.upload_bytes)} bytes compressed when sent) ` +
+      `→ ${n(encoder.encode(text).length)} bytes of text`;
+    return div;
+  }
+
+  function addMessage(kind, text, audio = null) {
     const div = document.createElement("div");
     div.className = "msg " + kind;
     div.textContent = text;
+    if (audio) div.appendChild(renderAudioInfo(audio, text));
     if (kind !== "note") div.appendChild(renderBytes(text));
     $("messages").appendChild(div);
     div.scrollIntoView({ block: "end" });
   }
 
-  function setTyping(on) {
-    const existing = document.querySelector(".typing");
-    if (on && !existing) {
+  function setTyping(on, label = "The waiter is typing…") {
+    document.querySelector(".typing")?.remove();
+    if (on) {
       const div = document.createElement("div");
       div.className = "typing";
-      div.textContent = "The waiter is typing…";
+      div.textContent = label;
       $("messages").appendChild(div);
       div.scrollIntoView({ block: "end" });
-    } else if (!on && existing) {
-      existing.remove();
     }
   }
 
   function setBusy(on, done = false) {
     busy = on;
     $("send").disabled = on || done;
+    $("mic").disabled = on || done || !micSupported;
     $("input").disabled = done;
     $("input").placeholder = done ? "Order placed. Click “New order” to order again." : "Type your order, e.g. two margheritas and a beer";
   }
@@ -273,18 +291,22 @@
     }
   }
 
-  async function post(url, body) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
-    });
+  async function request(url, options) {
+    const response = await fetch(url, { method: "POST", ...options });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || "Something went wrong. Please try again.");
     return data;
   }
+  const post = (url, body) =>
+    request(url, { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 
   async function newOrder() {
+    if (recorder) {  // discard a recording in progress
+      recorder.onstop = null;
+      recorder.stop();
+      recorder = null;
+      setMicState("idle");
+    }
     $("messages").replaceChildren();
     setBusy(true);
     try {
@@ -304,13 +326,17 @@
     }
   }
 
-  $("form").addEventListener("submit", async (event) => {
+  $("form").addEventListener("submit", (event) => {
     event.preventDefault();
     const text = $("input").value.trim();
     if (!text || busy || !sessionId) return;
     $("input").value = "";
     updatePreview();
     addMessage("customer", text);
+    sendToWaiter(text);
+  });
+
+  async function sendToWaiter(text) {
     setBusy(true);
     setTyping(true);
     let done = false;
@@ -326,7 +352,99 @@
       setBusy(false, done);
       if (!done) $("input").focus();
     }
+  }
+
+  // ---- Push-to-talk: hold the 🎤 button while speaking (or click to start, click again to send) ----
+  const micSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  const CLICK_MS = 400;     // a press shorter than this is a click: keep recording until the next click
+  const RELEASE_MS = 60000; // keep the microphone open a minute after use, so the next turn starts instantly
+  let stream = null, recorder = null, chunks = [], recordStart = 0, pressed = false, releaseTimer = null;
+
+  function setMicState(state) {
+    const mic = $("mic");
+    mic.classList.toggle("recording", state !== "idle");
+    mic.textContent = { idle: "🎤 Hold to talk", hold: "● Release to send", click: "■ Click to send" }[state];
+  }
+
+  async function startRecording() {
+    clearTimeout(releaseTimer);
+    try {
+      stream ??= await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
+    } catch (error) {
+      addMessage("note", "No access to a microphone. Allow it in the browser (icon in the address bar), or type your order.");
+      return;
+    }
+    chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.onstop = recordingFinished;
+    recorder.start();
+    recordStart = performance.now();
+    setMicState(pressed ? "hold" : "click");  // released while the browser asked for permission: click mode
+  }
+
+  async function recordingFinished() {
+    const blob = new Blob(chunks, { type: recorder.mimeType });
+    recorder = null;
+    setMicState("idle");
+    releaseTimer = setTimeout(() => { stream?.getTracks().forEach((t) => t.stop()); stream = null; }, RELEASE_MS);
+
+    const form = new FormData();
+    form.append("session_id", sessionId);
+    form.append("audio", blob, "recording");
+    setBusy(true);
+    setTyping(true, "Listening to what you said…");
+    let data;
+    try {
+      data = await request("/api/voice", { body: form });
+    } catch (error) {
+      setTyping(false);
+      addMessage("note", error.message);
+      setBusy(false);
+      return;
+    }
+    setTyping(false);
+    addMessage("customer", data.text, data.audio);
+    await sendToWaiter(data.text);
+  }
+
+  async function micDown() {
+    if ($("mic").disabled) return;
+    if (recorder) { recorder.stop(); return; }  // second click in click mode: send
+    pressed = true;
+    await startRecording();
+  }
+
+  function micUp() {
+    if (!pressed) return;
+    pressed = false;
+    if (!recorder) return;
+    if (performance.now() - recordStart < CLICK_MS) setMicState("click");  // a quick click: keep recording
+    else recorder.stop();
+  }
+
+  const mic = $("mic");
+  mic.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    mic.setPointerCapture(event.pointerId);  // keep getting pointerup even if the finger slides off
+    micDown();
   });
+  mic.addEventListener("pointerup", micUp);
+  mic.addEventListener("pointercancel", micUp);
+  mic.addEventListener("contextmenu", (event) => event.preventDefault());  // no long-press menu on phones
+  mic.addEventListener("keydown", (event) => {
+    if ((event.key === " " || event.key === "Enter") && !event.repeat) { event.preventDefault(); micDown(); }
+  });
+  mic.addEventListener("keyup", (event) => {
+    if (event.key === " " || event.key === "Enter") { event.preventDefault(); micUp(); }
+  });
+  if (!micSupported) {
+    mic.title = window.isSecureContext
+      ? "This browser can't record audio."
+      : "The microphone only works on localhost or HTTPS. Start the server with --https.";
+  }
 
   $("new-order").addEventListener("click", newOrder);
   $("input").addEventListener("input", updatePreview);

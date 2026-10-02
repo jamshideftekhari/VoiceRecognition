@@ -132,7 +132,8 @@ When the customer confirms, the order is saved as JSON in the `orders` folder.
 python web_app.py
 ```
 
-Then open <http://127.0.0.1:5000>. The page shows the chat on the left and the
+Then open <http://127.0.0.1:5000>. You can type or **speak** your order (see
+*Ordering by voice* below). The page shows the chat on the left and the
 order being built (with total) and the menu on the right; on a phone they are
 stacked. Clicking a dish adds its name to your message, and **New order**
 starts over.
@@ -145,6 +146,33 @@ starts over.
   `http://<this-pc's-ip>:5000`. The API key stays on the server.
 - This uses Flask's built-in server, which is fine for testing and a local
   network, but not for the open internet.
+
+### Ordering by voice (push-to-talk)
+
+**Hold the 🎤 button while you speak** and release it to send (on a laptop
+touchpad you can also click once to start and click again to send). The
+recording is sent to the server, turned into text by Whisper, shown as your
+message, and passed to the waiter exactly as if you had typed it.
+
+```
+python web_app.py                                   (model chosen automatically)
+python web_app.py --language da                     (customers speak Danish)
+python web_app.py --whisper-model small             (pick the Whisper model)
+python web_app.py --host 0.0.0.0 --https            (phones etc. on the network)
+```
+
+- **Model**: by default `large-v3-turbo` on an NVIDIA GPU and `base` on the
+  CPU. It is loaded when the server starts, so the first customer doesn't wait.
+  With the RTX A1000 a 5-second recording is recognized in about one second.
+- **Vocabulary**: the dish names from `menu.json` are given to Whisper, so it
+  recognizes them more often.
+- **Silence and noise** are filtered out, so they give "Sorry, I didn't catch
+  that" instead of invented text.
+- **Microphone rules**: browsers only allow the microphone on `localhost` or
+  over **HTTPS**. On the PC running the server, plain `http://127.0.0.1:5000`
+  works. For other devices use `--https`; the server then uses a self-signed
+  certificate, so the browser shows a warning once that you have to accept.
+- Recordings are not saved; they are only used to recognize the text.
 
 ### How the computer sees the text (for teaching)
 
@@ -168,6 +196,10 @@ hexadecimal (so `0x20` is 32, not twenty).
   bytes in binary (`11000011 10111000`).
 - Spaces are shown as `␣` (byte `0x20`).
 - The setting is remembered in the browser.
+- For spoken messages it also shows how much data the sound was compared with
+  the text, e.g. *5.37 s of sound = 85,992 samples (16,000 per second) =
+  171,984 bytes as 16-bit audio (51,612 bytes compressed when sent) → 67 bytes
+  of text*.
 
 Ideas for class: compare `a`/`A` (`0x61`/`0x41`, differing by one bit), the
 digits `0`–`9` (`0x30`–`0x39`), and why `fadøl` is 5 characters but 6 bytes.
@@ -216,12 +248,13 @@ speech-recognition models such as Whisper and Vosk. Saved files are 16-bit PCM W
 
 | File               | Description                                                   |
 |--------------------|---------------------------------------------------------------|
+| `speech.py`        | Speech recognition (`Transcriber`, GPU detection, audio decoding), shared by the recorder and the web app |
 | `recorder.py`      | The app: `Recorder` (audio), `Transcriber` (faster-whisper), `LiveTranscriber` (live text) and `App` (Tkinter UI) |
 | `requirements.txt` | Python dependencies                                           |
 | `requirements-gpu.txt` | Optional CUDA libraries for NVIDIA GPUs                   |
 | `order_agent.py`   | Restaurant ordering agent: `Menu`, `Order`, tools and `OrderAgent` (Claude) |
 | `menu.json`        | Example menu for the ordering agent                           |
-| `web_app.py`       | Web interface for the ordering agent (Flask)                  |
+| `web_app.py`       | Web interface for the ordering agent (Flask), incl. voice input |
 | `static/index.html`| The web page: chat, live order and menu                       |
 | `orders/`          | Placed orders, one JSON file each (created on first order)    |
 
@@ -265,10 +298,23 @@ print(language, text)
 - [x] Restaurant ordering agent (terminal chat)
 - [x] Web interface for the ordering agent
 - [x] Hexadecimal (UTF-8) view of the chat for teaching
-- [ ] Order by voice: connect speech recognition to the ordering agent
+- [x] Order by voice: push-to-talk in the web interface
+- [ ] Hands-free ordering (listen continuously, send on pause)
 - [ ] Spoken replies (text-to-speech)
 
 ## Changelog
+
+### 0.8.0 – 2026-10-02: Ordering by voice
+- Web page: **🎤 Hold to talk** button (push-to-talk, or click to start and
+  click again to send). The recognized text is shown as your message and sent
+  to the waiter.
+- New `/api/voice` endpoint: decodes the browser's recording and transcribes it
+  with faster-whisper, using the dish names as vocabulary and filtering out
+  silence. Options `--whisper-model`, `--language` and `--https`.
+- Hex view: spoken messages also show the size of the sound versus the text.
+- New `speech.py` with the speech-recognition code (moved from `recorder.py`,
+  which works as before) and its own audio decoder, since
+  `faster_whisper.decode_audio` doesn't work with PyAV 19.
 
 ### 0.7.0 – 2026-10-02: Hexadecimal view for teaching
 - Web page: **Show bytes (hex)** switch that shows each chat message as
