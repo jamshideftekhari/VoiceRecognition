@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kitchen orders</title>
+<style>
+  :root {
+    --bg: #f6f2ec; --panel: #ffffff; --text: #2b2420; --muted: #7a6f66; --line: #e6ddd2;
+    --accent: #b5532c; --accent-text: #ffffff; --soft: #f1ebe3;
+    --received: #3b6fb6; --preparing: #c27c0e; --ready: #2f7d4f; --delivered: #7a6f66;
+    --late: #b3261e; --new: #fff1c2;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1916; --panel: #26221e; --text: #f1ebe3; --muted: #a89c91; --line: #3a342e;
+      --accent: #e07a4f; --accent-text: #1c1916; --soft: #332d28;
+      --received: #7aa7e6; --preparing: #e8a93c; --ready: #6cc28f; --delivered: #a89c91;
+      --late: #f2857b; --new: #4a3f1c;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  header h1 span { color: var(--muted); font-weight: 400; font-size: 0.95rem; margin-left: 0.4rem; }
+  header nav { display: flex; align-items: center; gap: 1rem; color: var(--muted); font-size: 0.9rem; }
+  header a { color: var(--accent); }
+  #error { margin: 1rem 1.25rem 0; padding: 0.6rem 0.9rem; border-radius: 0.6rem; background: color-mix(in srgb, var(--late) 15%, transparent); color: var(--late); }
+
+  main { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; padding: 1rem 1.25rem; align-items: start; }
+  .column { background: color-mix(in srgb, var(--panel) 55%, transparent); border: 1px solid var(--line); border-radius: 1rem; padding: 0.75rem; min-height: 8rem; }
+  .column h2 { display: flex; align-items: center; justify-content: space-between; margin: 0 0 0.75rem; font-size: 1rem; }
+  .column h2::before { content: ""; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--status); margin-right: 0.5rem; }
+  .column h2 .label { flex: 1; }
+  .column h2 .count { min-width: 1.6rem; padding: 0 0.45rem; border-radius: 1rem; background: var(--status); color: var(--panel); text-align: center; font-size: 0.85rem; }
+  .column .empty { color: var(--muted); font-size: 0.9rem; margin: 0.25rem; }
+  .cards { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--status); border-radius: 0.75rem; padding: 0.75rem; }
+  .card.new { animation: arrive 3s ease-out; }
+  @keyframes arrive { from { background: var(--new); } }
+  @media (prefers-reduced-motion: reduce) { .card.new { animation: none; } }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .number { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .age { font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+  .age.late { color: var(--late); font-weight: 700; }
+  .customer { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.4rem; }
+  .lines { list-style: none; margin: 0; padding: 0; }
+  .lines li { padding: 0.2rem 0; border-top: 1px dashed var(--line); }
+  .lines .qty { font-weight: 700; }
+  .lines .notes { display: block; color: var(--accent); font-style: italic; font-size: 0.9rem; }
+  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+  .total { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .times { font-size: 0.8rem; color: var(--muted); margin-top: 0.4rem; }
+  .actions { display: flex; gap: 0.4rem; }
+  button { font: inherit; cursor: pointer; border-radius: 0.5rem; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0.35rem 0.7rem; }
+  button.forward { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .received { --status: var(--received); } .preparing { --status: var(--preparing); }
+  .ready { --status: var(--ready); } .delivered { --status: var(--delivered); }
+
+  @media (max-width: 1000px) { main { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Kitchen<span>Orders</span></h1>
+  <nav><span id="updated">Loading…</span><a href="/">Customer page</a></nav>
+</header>
+<div id="error" hidden></div>
+<main id="board"></main>
+<script>
+  const REFRESH_MS = 5000;
+  const LATE_MINUTES = 15;  // orders waiting longer than this are highlighted
+  const LABELS = { received: "Received", preparing: "Preparing", ready: "Ready", delivered: "Delivered" };
+  const FORWARD = { received: "Start preparing", preparing: "Mark ready", ready: "Mark delivered" };
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  let statuses = [];
+  let seen = null;      // ids of orders already shown, to highlight new ones
+  let lastData = "";    // skip re-drawing when nothing changed
+  let serverOffset = 0; // server clock minus this browser's clock, in ms
+
+  const minutesSince = (iso) => Math.max(0, Math.floor((Date.now() + serverOffset - new Date(iso)) / 60000));
+  const clock = (iso) => iso.slice(11, 16);  // "2026-10-02T13:08:35" -> "13:08"
+  const timeOf = (order, status) => order.status_history.findLast((h) => h.status === status)?.time;
+
+  function ageText(order) {
+    const minutes = minutesSince(order.time);
+    return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`;
+  }
+
+  function renderCard(order) {
+    const card = el("article", `card ${order.status}`);
+    if (seen && !seen.has(order.id)) card.classList.add("new");
+
+    const head = el("div", "card-head");
+    head.append(el("span", "number", `#${order.order_number}`));
+    const age = el("span", "age", order.status === "delivered" ? `placed ${clock(order.time)}` : ageText(order));
+    if (order.status !== "delivered" && minutesSince(order.time) >= LATE_MINUTES) age.classList.add("late");
+    head.append(age);
+    card.append(head, el("div", "customer", order.customer_name || "No name"));
+
+    const lines = el("ul", "lines");
+    for (const line of order.lines) {
+      const li = el("li");
+      li.append(el("span", "qty", `${line.quantity} × `), document.createTextNode(line.name));
+      if (line.notes) li.append(el("span", "notes", line.notes));
+      lines.append(li);
+    }
+    card.append(lines);
+
+    const foot = el("div", "card-foot");
+    foot.append(el("span", "total", `${order.total} ${order.currency}`));
+    const actions = el("div", "actions");
+    const index = statuses.indexOf(order.status);
+    if (index > 0) {
+      const back = el("button", "", "↶");
+      back.title = `Move back to ${LABELS[statuses[index - 1]]}`;
+      back.setAttribute("aria-label", back.title);
+      back.addEventListener("click", () => setStatus(order, statuses[index - 1], back));
+      actions.append(back);
+    }
+    if (FORWARD[order.status]) {
+      const forward = el("button", "forward", FORWARD[order.status]);
+      forward.addEventListener("click", () => setStatus(order, statuses[index + 1], forward));
+      actions.append(forward);
+    }
+    foot.append(actions);
+    card.append(foot);
+
+    const steps = statuses.slice(1, index + 1).map((s) => `${LABELS[s].toLowerCase()} ${clock(timeOf(order, s) || order.time)}`);
+    if (steps.length) card.append(el("div", "times", `Received ${clock(order.time)} · ${steps.join(" · ")}`));
+    return card;
+  }
+
+  function render(data) {
+    statuses = data.statuses;
+    const today = data.now.slice(0, 10);
+    const board = $("board");
+    board.replaceChildren();
+    for (const status of statuses) {
+      // Delivered orders pile up, so only today's are shown; the oldest waiting order comes first elsewhere.
+      let orders = data.orders.filter((o) => o.status === status);
+      if (status === "delivered") orders = orders.filter((o) => o.time.startsWith(today));
+      else orders.reverse();
+      const column = el("section", `column ${status}`);
+      const title = el("h2");
+      title.append(el("span", "label", status === "delivered" ? "Delivered today" : LABELS[status]), el("span", "count", orders.length));
+      column.append(title);
+      const cards = el("div", "cards");
+      for (const order of orders) cards.append(renderCard(order));
+      if (!orders.length) cards.append(el("p", "empty", "No orders"));
+      column.append(cards);
+      board.append(column);
+    }
+    seen = new Set(data.orders.map((o) => o.id));
+  }
+
+  async function refresh() {
+    try {
+      const response = await fetch("/api/orders");
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      serverOffset = new Date(data.now) - Date.now();
+      if (data.restaurant) {
+        $("title").firstChild.textContent = `Kitchen · ${data.restaurant}`;
+        document.title = `Kitchen · ${data.restaurant}`;
+      }
+      const key = JSON.stringify(data.orders) + Math.floor(Date.now() / 60000);  // also redraw each minute for the ages
+      if (key !== lastData) {
+        lastData = key;
+        render(data);
+      }
+      $("error").hidden = true;
+      $("updated").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    } catch {
+      $("error").textContent = "Can't reach the server. Retrying…";
+      $("error").hidden = false;
+    }
+  }
+
+  async function setStatus(order, status, button) {
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/orders/${encodeURIComponent(order.id)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Couldn't update the order.");
+      $("error").hidden = true;
+    } catch (error) {
+      $("error").textContent = error.message;
+      $("error").hidden = false;
+    }
+    lastData = "";
+    await refresh();
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

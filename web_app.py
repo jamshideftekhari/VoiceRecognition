@@ -10,12 +10,15 @@ import sys
 import threading
 import time
 import uuid
+from datetime import datetime
 
 import anthropic
 import numpy as np
 from flask import Flask, jsonify, request, send_from_directory
 
-from order_agent import NO_CREDENTIALS_MESSAGE, Menu, OrderAgent, has_credentials
+from order_agent import (
+    NO_CREDENTIALS_MESSAGE, ORDER_STATUSES, Menu, OrderAgent, has_credentials, list_orders, update_order_status,
+)
 from speech import LANGUAGES, SAMPLE_RATE, WHISPER_MODELS, Transcriber, decode_audio
 
 SESSION_TIMEOUT = 60 * 60  # forget conversations that have been idle for an hour
@@ -69,6 +72,34 @@ def too_large(_):
 @app.get("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.get("/orders")
+def orders_page():
+    """The kitchen/staff page: placed orders and their preparation and delivery."""
+    return send_from_directory(app.static_folder, "orders.html")
+
+
+@app.get("/api/orders")
+def get_orders():
+    return jsonify(
+        restaurant=menu.restaurant,
+        orders=list_orders(),
+        statuses=ORDER_STATUSES,
+        now=datetime.now().isoformat(timespec="seconds"),  # so the page can show "12 min ago" by the server's clock
+    )
+
+
+@app.post("/api/orders/<order_id>/status")
+def set_order_status(order_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        order = update_order_status(order_id, str(data.get("status", "")))
+    except KeyError:
+        return _error("That order doesn't exist.", 404)
+    except ValueError as e:
+        return _error(str(e), 409)
+    return jsonify(order=order)
 
 
 @app.post("/api/session")
@@ -174,8 +205,8 @@ def main():
     print(f"Loading speech recognition ({transcriber.model_size} on {transcriber.device.upper()})...")
     transcriber.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32))  # load the model now, not on the first order
 
-    scheme = "https" if args.https else "http"
-    print(f"Open {scheme}://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port} in a browser.")
+    address = f"{'https' if args.https else 'http'}://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
+    print(f"Customer page: {address}\nKitchen page:  {address}/orders")
     app.run(host=args.host, port=args.port, threaded=True, ssl_context="adhoc" if args.https else None)
 
 

@@ -7,7 +7,10 @@ Claude changes the order only through the tools defined in `make_tools`.
 import argparse
 import difflib
 import json
+import os
+import re
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -155,13 +158,19 @@ class Order:
             raise ToolError("The order is empty, so there is nothing to place.")
         if self.placed_as:
             raise ToolError(f"The order has already been placed as order {self.placed_as}.")
+        with _orders_lock:
+            return self._save(customer_name)
+
+    def _save(self, customer_name):
         now = datetime.now()
-        number = now.strftime("%H%M%S")
         ORDERS_DIR.mkdir(exist_ok=True)
+        # Order numbers start at 1 each day, which is easy for customers to remember.
+        number = str(len(list(ORDERS_DIR.glob(f"order-{now:%Y%m%d}-*.json"))) + 1)
+        placed = now.isoformat(timespec="seconds")
         record = {
             "order_number": number,
             "customer_name": customer_name,
-            "time": now.isoformat(timespec="seconds"),
+            "time": placed,
             "lines": [
                 {"item_id": l.item["id"], "name": l.item["name"], "quantity": l.quantity,
                  "notes": l.notes, "price": l.item["price"], "line_total": l.total}
@@ -169,11 +178,80 @@ class Order:
             ],
             "total": self.total,
             "currency": self.menu.currency,
+            "status": ORDER_STATUSES[0],
+            "status_history": [{"status": ORDER_STATUSES[0], "time": placed}],
         }
-        path = ORDERS_DIR / f"order-{now:%Y%m%d-%H%M%S}.json"
-        path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Never overwrite another order placed in the same second.
+        for attempt in range(1, 100):
+            suffix = "" if attempt == 1 else f"-{attempt}"
+            try:
+                with open(ORDERS_DIR / f"order-{now:%Y%m%d-%H%M%S}{suffix}.json", "x", encoding="utf-8") as f:
+                    json.dump(record, f, indent=2, ensure_ascii=False)
+                break
+            except FileExistsError:
+                continue
         self.placed_as = number
         return number
+
+
+# ---- Placed orders, as stored in the orders folder (used by the kitchen page) ----
+
+# The stages an order goes through after the customer has placed it.
+ORDER_STATUSES = ["received", "preparing", "ready", "delivered"]
+_orders_lock = threading.Lock()
+
+
+def _order_path(order_id):
+    # Only accept ids that look like our own file names, so nobody can reach other files.
+    if not re.fullmatch(r"order-\d{8}-\d{6}(-\d+)?", order_id):
+        raise KeyError(order_id)
+    path = ORDERS_DIR / f"{order_id}.json"
+    if not path.exists():
+        raise KeyError(order_id)
+    return path
+
+
+def _read_order(path):
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["id"] = path.stem
+    # Orders saved before statuses existed count as just received.
+    record.setdefault("status", ORDER_STATUSES[0])
+    record.setdefault("status_history", [{"status": ORDER_STATUSES[0], "time": record["time"]}])
+    return record
+
+
+def list_orders():
+    """All placed orders, newest first."""
+    if not ORDERS_DIR.exists():
+        return []
+    orders = []
+    for path in ORDERS_DIR.glob("order-*.json"):
+        try:
+            orders.append(_read_order(path))
+        except (OSError, ValueError, KeyError):
+            continue  # skip a file that is being written or is damaged
+    return sorted(orders, key=lambda o: (o["time"], o["id"]), reverse=True)
+
+
+def update_order_status(order_id, status):
+    """Move an order to `status` (one step forward or back) and record when it happened."""
+    if status not in ORDER_STATUSES:
+        raise ValueError(f"Unknown status '{status}'.")
+    with _orders_lock:
+        path = _order_path(order_id)
+        record = _read_order(path)
+        step = ORDER_STATUSES.index(status) - ORDER_STATUSES.index(record["status"])
+        if abs(step) != 1:
+            raise ValueError(f"Order {record['order_number']} is '{record['status']}' and can't move to '{status}'.")
+        record["status"] = status
+        record["status_history"].append({"status": status, "time": datetime.now().isoformat(timespec="seconds")})
+        del record["id"]
+        # Write to a temporary file first, so the kitchen page never reads a half-written order.
+        temp = path.with_suffix(".tmp")
+        temp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, path)
+        record["id"] = path.stem
+        return record
 
 
 def make_tools(order):

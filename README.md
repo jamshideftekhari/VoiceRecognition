@@ -125,6 +125,7 @@ Waiter: To Pizza Margherita og en fadøl, det bliver 235 kr. Ellers andet?
 ```
 
 When the customer confirms, the order is saved as JSON in the `orders` folder.
+Order numbers start at 1 each day.
 
 ### Web interface
 
@@ -146,6 +147,29 @@ starts over.
   `http://<this-pc's-ip>:5000`. The API key stays on the server.
 - This uses Flask's built-in server, which is fine for testing and a local
   network, but not for the open internet.
+
+### Kitchen page: preparation and delivery
+
+Open <http://127.0.0.1:5000/orders> (the server prints both addresses when it
+starts). It shows all placed orders in four columns:
+
+**Received → Preparing → Ready → Delivered**
+
+- Click **Start preparing**, **Mark ready** and **Mark delivered** to move an
+  order along; **↶** moves it back one step if you clicked by mistake.
+- Each card shows the order number, the customer's name, the dishes with their
+  special requests, the total, and how long ago the order came in. Orders that
+  have waited more than 15 minutes (and aren't delivered) are shown in red.
+- Waiting orders are listed oldest first; the *Delivered* column only shows
+  today's orders.
+- The page refreshes every 5 seconds, so new orders appear by themselves and
+  are briefly highlighted. Several screens can be open at the same time.
+- The status and the time of every step are saved in the order's JSON file
+  (`status` and `status_history`), so you can see afterwards how long
+  preparation and delivery took. Orders saved by older versions start as
+  *Received*.
+- The page has no login yet: anyone who can open the web app can also open the
+  kitchen page.
 
 ### Ordering by voice (push-to-talk)
 
@@ -255,8 +279,9 @@ speech-recognition models such as Whisper and Vosk. Saved files are 16-bit PCM W
 | `order_agent.py`   | Restaurant ordering agent: `Menu`, `Order`, tools and `OrderAgent` (Claude) |
 | `menu.json`        | Example menu for the ordering agent                           |
 | `web_app.py`       | Web interface for the ordering agent (Flask), incl. voice input |
-| `static/index.html`| The web page: chat, live order and menu                       |
-| `orders/`          | Placed orders, one JSON file each (created on first order)    |
+| `static/index.html`| The customer page: chat, voice input, live order and menu     |
+| `static/orders.html`| The kitchen page: orders and their preparation and delivery  |
+| `orders/`          | Placed orders, one JSON file each, incl. status history (created on first order) |
 
 The `Recorder` and `Transcriber` classes are independent of the UI, so they can
 be reused from other scripts:
@@ -300,9 +325,22 @@ print(language, text)
 - [x] Hexadecimal (UTF-8) view of the chat for teaching
 - [x] Order by voice: push-to-talk in the web interface
 - [ ] Hands-free ordering (listen continuously, send on pause)
+- [x] Kitchen page: order list with preparation and delivery
+- [ ] Show the customer their order's status (e.g. "being prepared", "ready")
+- [ ] Login for the kitchen page
 - [ ] Spoken replies (text-to-speech)
 
 ## Changelog
+
+### 0.9.0 – 2026-10-02: Kitchen page
+- New kitchen page at `/orders` (`static/orders.html`): placed orders in the
+  columns Received, Preparing, Ready and Delivered, with buttons to move them
+  forward (or one step back), waiting time, late orders in red, and automatic
+  refresh every 5 seconds.
+- Orders now have a `status` and a `status_history` with the time of each step.
+- New endpoints `GET /api/orders` and `POST /api/orders/<id>/status`.
+- Order numbers now start at 1 each day (they were the time of day, which could
+  repeat), and two orders placed in the same second no longer overwrite each other.
 
 ### 0.8.0 – 2026-10-02: Ordering by voice
 - Web page: **🎤 Hold to talk** button (push-to-talk, or click to start and
