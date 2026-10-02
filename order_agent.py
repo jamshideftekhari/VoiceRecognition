@@ -285,6 +285,27 @@ class OrderAgent:
         return "\n".join(replies)
 
 
+def hex_view(text, width=72):
+    """Show how the computer stores text: each character above its UTF-8 bytes in hex.
+
+    Example: 'Hej ø' ->   H    e    j    ␣    ø
+                          0x48 0x65 0x6A 0x20 0xC3 0xB8
+    """
+    char_row, byte_row, rows = "", "", []
+    for ch in text:
+        hex_bytes = " ".join(f"0x{b:02X}" for b in ch.encode("utf-8"))  # 0x marks a hexadecimal number
+        column = len(hex_bytes) + 1
+        if len(byte_row) + column > width:
+            rows += [char_row, byte_row]
+            char_row, byte_row = "", ""
+        char_row += ("␣" if ch == " " else ch).ljust(column)
+        byte_row += hex_bytes.ljust(column)
+    rows += [char_row, byte_row]
+    byte_count = len(text.encode("utf-8"))
+    rows.append(f"{len(text)} characters -> {byte_count} bytes (UTF-8)")
+    return "\n".join(rows)
+
+
 NO_CREDENTIALS_MESSAGE = (
     "No Anthropic credentials found. Set the ANTHROPIC_API_KEY environment variable "
     "(create a key at https://platform.claude.com) or log in with `ant auth login`."
@@ -298,6 +319,7 @@ def has_credentials(client):
 def main():
     parser = argparse.ArgumentParser(description="Chat with the restaurant ordering agent.")
     parser.add_argument("--debug", action="store_true", help="show the tool calls the agent makes")
+    parser.add_argument("--hex", action="store_true", help="show each message as UTF-8 bytes in hexadecimal")
     args = parser.parse_args()
 
     def show_tool_call(name, tool_input):
@@ -317,6 +339,8 @@ def main():
             continue
         if text.lower() in ("quit", "exit"):
             break
+        if args.hex:
+            print(f"\033[90m{hex_view(text)}\033[0m")
         try:
             reply = agent.send(text)
         except anthropic.AuthenticationError:
@@ -328,6 +352,8 @@ def main():
             print("Waiter: Sorry, I couldn't reach the ordering system. Please check the internet connection.")
             continue
         print(f"Waiter: {reply}")
+        if args.hex:
+            print(f"\033[90m{hex_view(reply)}\033[0m")
 
     if agent.is_done:
         print(f"\n{agent.order.summary()}\nSaved in the '{ORDERS_DIR.name}' folder as order {agent.order.placed_as}.")

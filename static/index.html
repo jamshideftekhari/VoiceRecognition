@@ -58,6 +58,29 @@
   .menu-item small { display: block; color: var(--muted); }
   .hint { color: var(--muted); font-size: 0.85rem; margin: 0; }
 
+  /* "How the computer sees it": UTF-8 bytes per character, shown when body has .show-hex */
+  :root { --b1: #e8eef7; --b2: #fde7c8; --b3: #e3f2dc; --b4: #f6dcef; --b-text: #2b2420; }
+  @media (prefers-color-scheme: dark) {
+    :root { --b1: #2c3542; --b2: #4a3a22; --b3: #2b3d27; --b4: #45293d; --b-text: #f1ebe3; }
+  }
+  .header-tools { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .switch { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
+  .switch input { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+  .bytes, #hex-preview, .legend { display: none; }
+  .show-hex .bytes, .show-hex #hex-preview, .show-hex .legend { display: block; }
+  .bytes { margin-top: 0.35rem; }
+  .msg .bytes { padding: 0.4rem; border-radius: 0.6rem; background: var(--panel); color: var(--text); }
+  .chars { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .ch { display: flex; flex-direction: column; align-items: center; padding: 0.15rem 0.3rem; border-radius: 0.35rem; color: var(--b-text);
+        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.8rem; line-height: 1.25; cursor: help; }
+  .ch .glyph { font-size: 1rem; font-weight: 600; }
+  .ch.n1 { background: var(--b1); } .ch.n2 { background: var(--b2); } .ch.n3 { background: var(--b3); } .ch.n4 { background: var(--b4); }
+  .count { margin-top: 0.3rem; font-size: 0.8rem; color: var(--muted); }
+  #hex-preview { padding: 0.6rem 0.75rem 0; max-height: 30dvh; overflow-y: auto; }
+  #hex-preview .empty { font-size: 0.85rem; }
+  .legend { padding: 0.5rem 1rem 0; font-size: 0.8rem; color: var(--muted); }
+  .legend .ch { display: inline-flex; flex-direction: row; gap: 0.3rem; margin: 0.1rem 0.2rem 0.1rem 0; cursor: default; }
+
   @media (max-width: 760px) {
     main { grid-template-columns: 1fr; height: auto; }
     #chat { height: 70dvh; }
@@ -68,11 +91,20 @@
 <body>
 <header>
   <h1 id="restaurant">Restaurant<span>Order with our AI waiter</span></h1>
-  <button id="new-order" type="button">New order</button>
+  <div class="header-tools">
+    <label class="switch"><input id="hex-toggle" type="checkbox"> Show bytes (hex)</label>
+    <button id="new-order" type="button">New order</button>
+  </div>
 </header>
 <main>
   <div id="chat" class="card">
+    <div class="legend">
+      UTF-8 bytes per character:
+      <span class="ch n1">a = 1 byte</span><span class="ch n2">æ ø å = 2 bytes</span><span class="ch n3">€ = 3 bytes</span><span class="ch n4">😀 = 4 bytes</span>
+      · Hover a character for its Unicode number and binary.
+    </div>
     <div id="messages" aria-live="polite"></div>
+    <div id="hex-preview" aria-live="polite"></div>
     <form id="form">
       <input id="input" autocomplete="off" placeholder="Type your order, e.g. two margheritas and a beer" maxlength="1000" aria-label="Message">
       <button id="send" class="primary" type="submit">Send</button>
@@ -99,10 +131,65 @@
   let currency = "DKK";
   let busy = false;
 
+  // ---- How the computer sees the text: each character and its UTF-8 bytes ----
+  const encoder = new TextEncoder();  // text -> UTF-8 bytes
+  const hex = (b) => "0x" + b.toString(16).toUpperCase().padStart(2, "0");  // 0x marks a hexadecimal number
+  const bin = (b) => b.toString(2).padStart(8, "0");
+
+  function renderBytes(text) {
+    const box = document.createElement("div");
+    box.className = "bytes";
+    const chars = document.createElement("div");
+    chars.className = "chars";
+    let charCount = 0, byteCount = 0;
+    for (const ch of text) {  // for..of walks Unicode characters (code points), not UTF-16 units
+      const bytes = encoder.encode(ch);
+      charCount += 1;
+      byteCount += bytes.length;
+      const codePoint = "U+" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+      const chip = document.createElement("span");
+      chip.className = "ch n" + bytes.length;
+      chip.title = `${codePoint} · ${bytes.length} byte${bytes.length > 1 ? "s" : ""} · binary ${[...bytes].map(bin).join(" ")}`;
+      const glyph = document.createElement("span");
+      glyph.className = "glyph";
+      glyph.textContent = ch === " " ? "␣" : ch;  // make spaces visible
+      const code = document.createElement("span");
+      code.textContent = [...bytes].map(hex).join(" ");
+      chip.append(glyph, code);
+      chars.appendChild(chip);
+    }
+    const count = document.createElement("div");
+    count.className = "count";
+    count.textContent = `${charCount} character${charCount === 1 ? "" : "s"} → ${byteCount} byte${byteCount === 1 ? "" : "s"} (UTF-8)`;
+    box.append(chars, count);
+    return box;
+  }
+
+  function updatePreview() {
+    const preview = $("hex-preview");
+    const text = $("input").value;
+    if (text) {
+      preview.replaceChildren(renderBytes(text));
+    } else {
+      const hint = document.createElement("p");
+      hint.className = "empty";
+      hint.textContent = "Start typing to see how the computer stores each character.";
+      preview.replaceChildren(hint);
+    }
+  }
+
+  function setHex(on) {
+    document.body.classList.toggle("show-hex", on);
+    $("hex-toggle").checked = on;
+    try { localStorage.setItem("showHex", on ? "1" : "0"); } catch (e) {}
+    updatePreview();
+  }
+
   function addMessage(kind, text) {
     const div = document.createElement("div");
     div.className = "msg " + kind;
     div.textContent = text;
+    if (kind !== "note") div.appendChild(renderBytes(text));
     $("messages").appendChild(div);
     div.scrollIntoView({ block: "end" });
   }
@@ -179,6 +266,7 @@
       button.addEventListener("click", () => {
         const input = $("input");
         input.value = input.value.trim() ? `${input.value.trim()}, ${item.name}` : item.name;
+        updatePreview();
         input.focus();
       });
       menu.appendChild(button);
@@ -221,6 +309,7 @@
     const text = $("input").value.trim();
     if (!text || busy || !sessionId) return;
     $("input").value = "";
+    updatePreview();
     addMessage("customer", text);
     setBusy(true);
     setTyping(true);
@@ -240,6 +329,11 @@
   });
 
   $("new-order").addEventListener("click", newOrder);
+  $("input").addEventListener("input", updatePreview);
+  $("hex-toggle").addEventListener("change", (event) => setHex(event.target.checked));
+  let savedHex = false;
+  try { savedHex = localStorage.getItem("showHex") === "1"; } catch (e) {}
+  setHex(savedHex);
   newOrder();
 </script>
 </body>

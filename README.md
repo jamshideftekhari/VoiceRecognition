@@ -146,6 +146,36 @@ starts over.
 - This uses Flask's built-in server, which is fine for testing and a local
   network, but not for the open internet.
 
+### How the computer sees the text (for teaching)
+
+Tick **Show bytes (hex)** in the page header to show every chat message the way
+the computer stores it: each character with its **UTF-8** bytes in
+hexadecimal underneath. A live preview under the input box updates as you type.
+
+```
+t    o    ␣    f    a    d    ø         l
+0x74 0x6F 0x20 0x66 0x61 0x64 0xC3 0xB8 0x6C
+8 characters -> 9 bytes (UTF-8)
+```
+
+Every byte is written with the prefix `0x`, the usual way to mark a number as
+hexadecimal (so `0x20` is 32, not twenty).
+
+- Colors show how many bytes a character needs: **1 byte** for English
+  letters, digits and punctuation (the same values as ASCII), **2 bytes** for
+  `æ ø å`, **3 bytes** for `€`, **4 bytes** for emoji.
+- Hover a character to see its Unicode code point (e.g. `ø` = `U+00F8`) and its
+  bytes in binary (`11000011 10111000`).
+- Spaces are shown as `␣` (byte `0x20`).
+- The setting is remembered in the browser.
+
+Ideas for class: compare `a`/`A` (`0x61`/`0x41`, differing by one bit), the
+digits `0`–`9` (`0x30`–`0x39`), and why `fadøl` is 5 characters but 6 bytes.
+
+In the terminal, `python order_agent.py --hex` prints the same view after each
+message. Emoji are wider than one column in most terminals, so the columns may
+shift slightly after an emoji.
+
 ### How it works
 
 Claude handles the conversation, but the order itself lives in Python. Claude
@@ -234,10 +264,17 @@ print(language, text)
 - [ ] Try a Whisper model fine-tuned on Danish
 - [x] Restaurant ordering agent (terminal chat)
 - [x] Web interface for the ordering agent
+- [x] Hexadecimal (UTF-8) view of the chat for teaching
 - [ ] Order by voice: connect speech recognition to the ordering agent
 - [ ] Spoken replies (text-to-speech)
 
 ## Changelog
+
+### 0.7.0 – 2026-10-02: Hexadecimal view for teaching
+- Web page: **Show bytes (hex)** switch that shows each chat message as
+  characters with their UTF-8 bytes in hex (`0xC3 0xB8`), color-coded by byte count, with a
+  live preview while typing and code point and binary on hover.
+- CLI: `--hex` option prints the same view in the terminal.
 
 ### 0.6.0 – 2026-10-02: Web interface
 - New `web_app.py` (Flask) and `static/index.html`: order through a web page
