@@ -137,6 +137,19 @@ class Order:
             rows.append(f"{number}. {line.quantity} x {line.item['name']}{notes}: {line.total} {self.menu.currency}")
         return "Current order:\n" + "\n".join(rows) + f"\nTotal: {self.total} {self.menu.currency}"
 
+    def to_dict(self):
+        """The order as plain data, e.g. for a web page."""
+        return {
+            "lines": [
+                {"number": number, "item_id": line.item["id"], "name": line.item["name"],
+                 "quantity": line.quantity, "notes": line.notes, "line_total": line.total}
+                for number, line in enumerate(self.lines, start=1)
+            ],
+            "total": self.total,
+            "currency": self.menu.currency,
+            "placed_as": self.placed_as,
+        }
+
     def place(self, customer_name):
         if not self.lines:
             raise ToolError("The order is empty, so there is nothing to place.")
@@ -211,12 +224,12 @@ def make_tools(order):
 class OrderAgent:
     """One conversation with one customer. Call send() with what the customer said."""
 
-    def __init__(self, menu=None, model=MODEL, on_tool_call=None):
+    def __init__(self, menu=None, model=MODEL, on_tool_call=None, client=None):
         self.menu = menu or Menu()
         self.order = Order(self.menu)
         self.model = model
         self.on_tool_call = on_tool_call  # optional callback(name, input) for debugging
-        self.client = anthropic.Anthropic()
+        self.client = client or anthropic.Anthropic()
         self.tools = make_tools(self.order)
         self.system = SYSTEM_PROMPT.format(
             restaurant=self.menu.restaurant, currency=self.menu.currency, menu=self.menu.as_prompt_text()
@@ -272,6 +285,16 @@ class OrderAgent:
         return "\n".join(replies)
 
 
+NO_CREDENTIALS_MESSAGE = (
+    "No Anthropic credentials found. Set the ANTHROPIC_API_KEY environment variable "
+    "(create a key at https://platform.claude.com) or log in with `ant auth login`."
+)
+
+
+def has_credentials(client):
+    return bool(client.api_key or client.auth_token or client.credentials)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Chat with the restaurant ordering agent.")
     parser.add_argument("--debug", action="store_true", help="show the tool calls the agent makes")
@@ -281,12 +304,8 @@ def main():
         print(f"  \033[90m[{name}] {json.dumps(tool_input, ensure_ascii=False)}\033[0m")
 
     agent = OrderAgent(on_tool_call=show_tool_call if args.debug else None)
-    client = agent.client
-    if not (client.api_key or client.auth_token or client.credentials):
-        sys.exit(
-            "No Anthropic credentials found. Set the ANTHROPIC_API_KEY environment variable "
-            "(create a key at https://platform.claude.com) or log in with `ant auth login`."
-        )
+    if not has_credentials(agent.client):
+        sys.exit(NO_CREDENTIALS_MESSAGE)
     print(f"Waiter: {agent.greeting}  (type 'quit' to leave)")
     while not agent.is_done:
         try:

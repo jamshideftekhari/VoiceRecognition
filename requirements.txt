@@ -3,3 +3,4 @@ scipy
 sounddevice
 faster-whisper
 anthropic
+flask

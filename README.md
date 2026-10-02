@@ -5,7 +5,7 @@ file, and transcribe the speech to text — live while you speak, or afterwards 
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper).
 
 It also contains an AI ordering agent (`order_agent.py`): a Claude-powered
-restaurant waiter that takes orders in a terminal chat. It will later be
+restaurant waiter that takes orders in a terminal chat or a web page. It will later be
 connected to the voice recognition.
 
 ## Requirements
@@ -126,6 +126,26 @@ Waiter: To Pizza Margherita og en fadøl, det bliver 235 kr. Ellers andet?
 
 When the customer confirms, the order is saved as JSON in the `orders` folder.
 
+### Web interface
+
+```
+python web_app.py
+```
+
+Then open <http://127.0.0.1:5000>. The page shows the chat on the left and the
+order being built (with total) and the menu on the right; on a phone they are
+stacked. Clicking a dish adds its name to your message, and **New order**
+starts over.
+
+- Each browser tab is its own conversation and order. Conversations live in
+  the server's memory and are forgotten after an hour of inactivity or when
+  the server restarts.
+- `python web_app.py --host 0.0.0.0` makes the page reachable from other
+  devices on your network (e.g. a phone or a Raspberry Pi kiosk) at
+  `http://<this-pc's-ip>:5000`. The API key stays on the server.
+- This uses Flask's built-in server, which is fine for testing and a local
+  network, but not for the open internet.
+
 ### How it works
 
 Claude handles the conversation, but the order itself lives in Python. Claude
@@ -171,6 +191,8 @@ speech-recognition models such as Whisper and Vosk. Saved files are 16-bit PCM W
 | `requirements-gpu.txt` | Optional CUDA libraries for NVIDIA GPUs                   |
 | `order_agent.py`   | Restaurant ordering agent: `Menu`, `Order`, tools and `OrderAgent` (Claude) |
 | `menu.json`        | Example menu for the ordering agent                           |
+| `web_app.py`       | Web interface for the ordering agent (Flask)                  |
+| `static/index.html`| The web page: chat, live order and menu                       |
 | `orders/`          | Placed orders, one JSON file each (created on first order)    |
 
 The `Recorder` and `Transcriber` classes are independent of the UI, so they can
@@ -211,10 +233,21 @@ print(language, text)
 - [x] Model, language and vocabulary settings; GPU support
 - [ ] Try a Whisper model fine-tuned on Danish
 - [x] Restaurant ordering agent (terminal chat)
+- [x] Web interface for the ordering agent
 - [ ] Order by voice: connect speech recognition to the ordering agent
 - [ ] Spoken replies (text-to-speech)
 
 ## Changelog
+
+### 0.6.0 – 2026-10-02: Web interface
+- New `web_app.py` (Flask) and `static/index.html`: order through a web page
+  with the chat, the live order with total, and a clickable menu. Works on
+  phones too, and follows the system's light/dark mode.
+- One conversation per browser tab; idle conversations are removed after an hour.
+- `--host 0.0.0.0` to use it from other devices on the network.
+- `Order.to_dict()` for the order as data; `OrderAgent` can share one API client.
+- The terminal chat (`order_agent.py`) works as before.
+- Added `flask` to `requirements.txt`.
 
 ### 0.5.0 – 2026-10-01: Restaurant ordering agent
 - New `order_agent.py`: a Claude-powered waiter (Claude Opus 5, Anthropic SDK
