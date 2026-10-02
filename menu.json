@@ -1,0 +1,30 @@
+{
+  "restaurant": "Café Mølle",
+  "currency": "DKK",
+  "items": [
+    {"id": "margherita", "name": "Pizza Margherita", "name_da": "Pizza Margherita", "category": "Pizza", "price": 95,
+     "description": "Tomato sauce, mozzarella, basil", "allergens": ["gluten", "milk"], "vegetarian": true},
+    {"id": "pepperoni", "name": "Pizza Pepperoni", "name_da": "Pizza Pepperoni", "category": "Pizza", "price": 110,
+     "description": "Tomato sauce, mozzarella, spicy pepperoni", "allergens": ["gluten", "milk"], "vegetarian": false},
+    {"id": "vegetariana", "name": "Pizza Vegetariana", "name_da": "Pizza Vegetariana", "category": "Pizza", "price": 105,
+     "description": "Tomato sauce, mozzarella, peppers, mushrooms, red onion, olives", "allergens": ["gluten", "milk"], "vegetarian": true},
+    {"id": "classic_burger", "name": "Classic Burger", "name_da": "Klassisk burger", "category": "Burgers", "price": 129,
+     "description": "Beef patty, cheddar, lettuce, tomato, pickles, burger sauce", "allergens": ["gluten", "milk", "egg", "mustard"], "vegetarian": false},
+    {"id": "veggie_burger", "name": "Veggie Burger", "name_da": "Vegetarburger", "category": "Burgers", "price": 125,
+     "description": "Chickpea patty, avocado, lettuce, tomato, vegan mayo", "allergens": ["gluten", "sesame"], "vegetarian": true},
+    {"id": "fries", "name": "French Fries", "name_da": "Pommes frites", "category": "Sides", "price": 35,
+     "description": "With aioli", "allergens": ["egg"], "vegetarian": true},
+    {"id": "salad", "name": "Side Salad", "name_da": "Lille salat", "category": "Sides", "price": 45,
+     "description": "Mixed greens, cucumber, cherry tomatoes, vinaigrette", "allergens": ["mustard"], "vegetarian": true},
+    {"id": "brownie", "name": "Chocolate Brownie", "name_da": "Chokoladebrownie", "category": "Desserts", "price": 55,
+     "description": "Served warm with vanilla ice cream", "allergens": ["gluten", "milk", "egg", "nuts"], "vegetarian": true},
+    {"id": "cola", "name": "Coca-Cola", "name_da": "Coca-Cola", "category": "Drinks", "price": 30,
+     "description": "33 cl", "allergens": [], "vegetarian": true},
+    {"id": "cola_zero", "name": "Coca-Cola Zero", "name_da": "Coca-Cola Zero", "category": "Drinks", "price": 30,
+     "description": "33 cl", "allergens": [], "vegetarian": true},
+    {"id": "sparkling_water", "name": "Sparkling Water", "name_da": "Danskvand", "category": "Drinks", "price": 25,
+     "description": "50 cl", "allergens": [], "vegetarian": true},
+    {"id": "beer", "name": "Draft Beer", "name_da": "Fadøl", "category": "Drinks", "price": 45,
+     "description": "40 cl lager", "allergens": ["gluten"], "vegetarian": true}
+  ]
+}

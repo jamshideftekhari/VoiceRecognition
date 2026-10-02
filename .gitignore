@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Placed orders (may contain customer names)
+orders/
+
+# Recordings
+*.wav
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

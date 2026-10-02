@@ -1,0 +1,4 @@
+# Optional: CUDA libraries for running Whisper on an NVIDIA GPU.
+# Install with: python -m pip install -r requirements-gpu.txt
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
